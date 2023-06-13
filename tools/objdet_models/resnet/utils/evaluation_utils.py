@@ -130,7 +130,7 @@ def post_processing(detections, configs):
                 detections[i, inds, 4:5],
                 detections[i, inds, 5:6] / (configs.lim_y[1]-configs.lim_y[0]) * configs.bev_width,
                 detections[i, inds, 6:7] / (configs.lim_x[1]-configs.lim_x[0]) * configs.bev_height,
-                get_yaw(detections[i, inds, 7:9]).astype(np.float32)], axis=1)
+                get_yaw(detections[i, inds, 7:9])], axis=1)
             # Filter by conf_thresh
             if len(top_preds[j]) > 0:
                 keep_inds = (top_preds[j][:, 0] > configs.conf_thresh)
