@@ -78,14 +78,8 @@ def show_range_image(frame, lidar_name):
     print("student task ID_S1_EX1")
 
     # step 1 : extract lidar data and range image for the roof-mounted lidar
-    lidar = [obj for obj in frame.lasers if obj.name == lidar_name][0]
-    
     # step 2 : extract the range and the intensity channel from the range image
-    ri = []
-    if len(lidar.ri_return1.range_image_compressed) > 0:  # use first response
-        ri = dataset_pb2.MatrixFloat()
-        ri.ParseFromString(zlib.decompress(lidar.ri_return1.range_image_compressed))
-        ri = np.array(ri.data).reshape(ri.shape.dims)
+    ri = load_range_image(frame, lidar_name)
     
     # step 3 : set values <0 to zero
     ri[ri < 0] = 0.0
@@ -101,14 +95,9 @@ def show_range_image(frame, lidar_name):
 
     # step 6 : stack the range and intensity image vertically using np.vstack and convert the result to an unsigned 8-bit integer
 
-    img_range_intensity = np.zeros((ri.shape[0], ri.shape[1], 2), 'uint8')
-    for i in range(ri.shape[0]):
-        for j in range(ri.shape[1]):
-            img_range_intensity[i, j] = (ri[i, j, 0], ri[i, j, 1])
-
-
-    #print(img_range_intensity.shape)
-    #img_range_intensity = [] # remove after implementing all steps
+    img_range_intensity = np.zeros((ri.shape[0], ri.shape[1], 3), 'uint8')
+    img_range_intensity[:,:, 0] = ri[:,:,0]
+    img_range_intensity[:, :, 1] = ri[:, :, 1]
     #######
     ####### ID_S1_EX1 END #######     
     
