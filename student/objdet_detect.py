@@ -14,10 +14,14 @@
 import numpy as np
 import torch
 from easydict import EasyDict as edict
+from misc.objdet_tools import is_label_inside_detection_area
 
 # add project directory to python path to enable relative imports
 import os
 import sys
+
+from tools.objdet_models.resnet.models.fpn_resnet import get_pose_net
+
 PACKAGE_PARENT = '..'
 SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
 sys.path.append(os.path.normpath(os.path.join(SCRIPT_DIR, PACKAGE_PARENT)))
@@ -61,6 +65,35 @@ def load_configs_model(model_name='darknet', configs=None):
         ####### ID_S3_EX1-3 START #######     
         #######
         print("student task ID_S3_EX1-3")
+
+        configs.arch = 'fpn_resnet_18'
+        configs.pretrained_path = os.path.join(configs.model_path, 'pretrained', 'fpn_resnet_18_epoch_300.pth')
+        configs.pretrained_filename = os.path.join(configs.model_path, 'pretrained', 'fpn_resnet_18_epoch_300.pth')
+        configs.pin_memory = True
+        configs.distributed = False  # For testing on 1 GPU only
+
+        configs.input_size = (608, 608)
+        configs.hm_size = (152, 152)
+        configs.down_ratio = 4
+        configs.max_objects = 50
+        configs.conf_thresh = 0.5
+
+        configs.imagenet_pretrained = False
+        configs.head_conv = 64
+        configs.num_classes = 3
+        configs.num_center_offset = 2
+        configs.num_z = 1
+        configs.num_dim = 3
+        configs.num_direction = 2  # sin, cos
+
+        configs.heads = {
+            'hm_cen': configs.num_classes,
+            'cen_offset': configs.num_center_offset,
+            'direction': configs.num_direction,
+            'z_coor': configs.num_z,
+            'dim': configs.num_dim
+        }
+        configs.num_input_features = 4
 
         #######
         ####### ID_S3_EX1-3 END #######     
@@ -118,6 +151,10 @@ def create_model(configs):
         ####### ID_S3_EX1-4 START #######     
         #######
         print("student task ID_S3_EX1-4")
+        arch_parts = configs.arch.split('_')
+        num_layers = int(arch_parts[-1])
+        model = get_pose_net(num_layers=num_layers, heads = configs.heads, head_conv=configs.head_conv,
+                                        imagenet_pretrained=configs.imagenet_pretrained)
 
         #######
         ####### ID_S3_EX1-4 END #######     
@@ -148,7 +185,6 @@ def detect_objects(input_bev_maps, model, configs):
 
         # decode model output into target object format
         if 'darknet' in configs.arch:
-
             # perform post-processing
             output_post = post_processing_v2(outputs, conf_thresh=configs.conf_thresh, nms_thresh=configs.nms_thresh) 
             detections = []
@@ -163,10 +199,22 @@ def detect_objects(input_bev_maps, model, configs):
 
         elif 'fpn_resnet' in configs.arch:
             # decode output and perform post-processing
-            
+
             ####### ID_S3_EX1-5 START #######     
             #######
             print("student task ID_S3_EX1-5")
+
+            resnet_detections = decode(hm_cen=outputs["hm_cen"], cen_offset=outputs["cen_offset"],
+                                direction=outputs["direction"],
+                                z_coor=outputs["z_coor"], dim=outputs["dim"])
+            resnet_detections = resnet_detections.cpu().numpy().astype(np.float32)
+            resnet_detections = post_processing(resnet_detections, configs)
+
+            detections = []
+            for index, det in resnet_detections[0].items():
+                for i in range(det.shape[0]):
+                    det[i][0] = index
+                    detections.append(det[i])
 
             #######
             ####### ID_S3_EX1-5 END #######     
@@ -180,15 +228,20 @@ def detect_objects(input_bev_maps, model, configs):
     objects = [] 
 
     ## step 1 : check whether there are any detections
+    ## step 2 : loop over all detections
+    ## step 3 : perform the conversion using the limits for x, y and z set in the configs structure
+    ## step 4 : append the current object to the 'objects' array
 
-        ## step 2 : loop over all detections
-        
-            ## step 3 : perform the conversion using the limits for x, y and z set in the configs structure
-        
-            ## step 4 : append the current object to the 'objects' array
-        
+    discretization = (configs.lim_x[1] - configs.lim_x[0]) / configs.bev_height
+    for detection in detections:
+        y = (detection[1] - (configs.bev_width + 1) / 2) * discretization
+        x = detection[2] * discretization
+        w = detection[5] * discretization
+        l = detection[6] * discretization
+        objects.append([detection[0], x, y, detection[3], detection[4], w, l, detection[7]])
+
     #######
-    ####### ID_S3_EX2 START #######   
+    ####### ID_S3_EX2 END #######
     
     return objects    
 
