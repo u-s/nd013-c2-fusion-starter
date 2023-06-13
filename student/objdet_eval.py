@@ -30,18 +30,47 @@ sys.path.append(os.path.normpath(os.path.join(SCRIPT_DIR, PACKAGE_PARENT)))
 # object detection tools and helper functions
 import misc.objdet_tools as tools
 
+def calculate_iou(gt_bbox, pred_bbox):
+    """
+    calculate iou
+    args:
+    - gt_bbox [array]: 1x4 single gt bbox
+    - pred_bbox [array]: 1x4 single pred bbox
+    returns:
+    - iou [float]: iou between 2 bboxes
+    """
+    if gt_bbox[0] > gt_bbox[2]:
+        gt_bbox = [gt_bbox[2],gt_bbox[3],gt_bbox[0],gt_bbox[1]]
+
+    if pred_bbox[0] > pred_bbox[2]:
+        pred_bbox = [pred_bbox[2],pred_bbox[3],pred_bbox[0],pred_bbox[1]]
+
+    xmin = np.max([gt_bbox[0], pred_bbox[0]])
+    ymin = np.max([(-1)*gt_bbox[1], (-1)*pred_bbox[1]])
+    xmax = np.min([gt_bbox[2], pred_bbox[2]])
+    ymax = np.min([(-1)*gt_bbox[3], (-1)*pred_bbox[3]])
+
+    intersection = max(0, xmax - xmin) * max(0, ymax - ymin)
+    gt_area = abs((gt_bbox[2] - gt_bbox[0]) * (gt_bbox[1] - gt_bbox[3]))
+    pred_area = abs((pred_bbox[2] - pred_bbox[0]) * (pred_bbox[1] - pred_bbox[3]))
+
+    union = gt_area + pred_area - intersection
+    return intersection / union
+
 
 # compute various performance measures to assess object detection
 def measure_detection_performance(detections, labels, labels_valid, min_iou=0.5):
-    
-     # find best detection for each valid label 
     true_positives = 0 # no. of correctly detected objects
+    false_negatives = 0
+    all_positives = 0
+    match_positives = 0
     center_devs = []
     ious = []
+
     for label, valid in zip(labels, labels_valid):
         matches_lab_det = []
         if valid: # exclude all labels from statistics which are not considered valid
-            
+            all_positives += 1
             # compute intersection over union (iou) and distance between centers
 
             ####### ID_S4_EX1 START #######     
@@ -49,41 +78,51 @@ def measure_detection_performance(detections, labels, labels_valid, min_iou=0.5)
             print("student task ID_S4_EX1 ")
 
             ## step 1 : extract the four corners of the current label bounding-box
-            
+            label_corners = tools.compute_box_corners(label.box.center_x, label.box.center_y,
+                                      label.box.width, label.box.length, label.box.heading)
             ## step 2 : loop over all detected objects
-
+            for detection in detections:
                 ## step 3 : extract the four corners of the current detection
-                
+                det_corners = tools.compute_box_corners(detection[1], detection[2], detection[5],
+                                                        detection[6], detection[7])
                 ## step 4 : computer the center distance between label and detection bounding-box in x, y, and z
+                dist_x = abs(label.box.center_x - detection[1])
+                dist_y = abs(label.box.center_y - detection[2])
+                dist_z = abs(label.box.center_z - detection[3])
                 
                 ## step 5 : compute the intersection over union (IOU) between label and detection bounding-box
-                
+                iou = calculate_iou([label_corners[0][0], label_corners[0][1], label_corners[2][0], label_corners[2][1]],
+                                    [det_corners[0][0].item(), det_corners[0][1].item(), det_corners[2][0].item(), det_corners[2][1].item()])
+                if iou >= min_iou:
+                    matches_lab_det.append([iou, dist_x, dist_y, dist_z])
+                    match_positives += 1
                 ## step 6 : if IOU exceeds min_iou threshold, store [iou,dist_x, dist_y, dist_z] in matches_lab_det and increase the TP count
                 
             #######
-            ####### ID_S4_EX1 END #######     
+            ####### ID_S4_EX1 END #######
             
         # find best match and compute metrics
         if matches_lab_det:
             best_match = max(matches_lab_det,key=itemgetter(1)) # retrieve entry with max iou in case of multiple candidates   
             ious.append(best_match[0])
             center_devs.append(best_match[1:])
-
+            true_positives += 1
+        else:
+            if valid:
+                false_negatives += 1
 
     ####### ID_S4_EX2 START #######     
     #######
     print("student task ID_S4_EX2")
     
     # compute positives and negatives for precision/recall
-    
     ## step 1 : compute the total number of positives present in the scene
-    all_positives = 0
-
     ## step 2 : compute the number of false negatives
-    false_negatives = 0
+
+    # all_positives, true_positives and false_negatives were computed in the previous loop
 
     ## step 3 : compute the number of false positives
-    false_positives = 0
+    false_positives = len(detections) - true_positives
     
     #######
     ####### ID_S4_EX2 END #######     
@@ -111,12 +150,21 @@ def compute_performance_stats(det_performance_all):
     print('student task ID_S4_EX3')
 
     ## step 1 : extract the total number of positives, true positives, false negatives and false positives
+    pos_negs = []
+    for item in det_performance_all:
+        pos_negs.append(item[2])
+    pos_negs_arr = np.asarray(pos_negs)
+
+    positives = sum(pos_negs_arr[:, 0])
+    true_positives = sum(pos_negs_arr[:, 1])
+    false_negatives = sum(pos_negs_arr[:, 2])
+    false_positives = sum(pos_negs_arr[:, 3])
     
     ## step 2 : compute precision
-    precision = 0.0
+    precision = true_positives / (true_positives + false_positives)
 
     ## step 3 : compute recall 
-    recall = 0.0
+    recall = true_positives / (true_positives + false_negatives)
 
     #######    
     ####### ID_S4_EX3 END #######     
